@@ -1,0 +1,23 @@
+.DS_Store
+
+.idea/
+.vscode/
+.claude/
+*.tgz
+tmp/
+
+*.swp
+*.swo
+*~
+
+__pycache__/
+.pytest_cache/
+
+evals/results/*.json
+evals/results/batches/*/logs/
+
+# Adversarial code review artifacts
+.reviews/
+
+# Claude Code local settings (may contain API keys)
+.claude/settings.local.json

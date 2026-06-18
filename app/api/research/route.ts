@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import { executeTokenSkill, executeTVLSkill, executeWalletSkill, executeRiskSkill, generateReport } from '@/lib/agent';
+import { runMantleSkillAgent } from '@/lib/mantle-agent';
+
+export const runtime = 'nodejs';
 
 async function collectResearchData() {
-  const [tokenData, tvlData, walletData, riskData] = await Promise.all([
+  const [tokenData, tvlData, walletData] = await Promise.all([
     executeTokenSkill(),
     executeTVLSkill(),
     executeWalletSkill(),
-    executeRiskSkill(),
   ]);
+  const riskData = await executeRiskSkill(tokenData.data, tvlData.data);
 
   return {
     data: {
@@ -33,14 +36,23 @@ export async function POST(request: Request) {
   try {
     const { query } = await request.json();
     const { data: dataContext, skillsUsed } = await collectResearchData();
+    const researchQuery = typeof query === 'string' && query.trim()
+      ? query.trim()
+      : 'General Mantle Research';
+    const mantleAgent = await runMantleSkillAgent(researchQuery, dataContext);
 
-    // Generate markdown report
-    const report = await generateReport(query || "General Mantle Research", dataContext);
+    const report = mantleAgent.report || await generateReport(researchQuery, dataContext);
 
     return NextResponse.json({
       report,
       data: dataContext,
-      skillsUsed,
+      skillsUsed: [...skillsUsed, mantleAgent.selectedSkill],
+      mantleAgent: {
+        selectedSkill: mantleAgent.selectedSkill,
+        mcpUsed: mantleAgent.mcpUsed,
+        toolsUsed: mantleAgent.toolsUsed || [],
+        warning: mantleAgent.warning,
+      },
     });
   } catch (error) {
     console.error(error);

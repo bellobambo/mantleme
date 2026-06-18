@@ -9,9 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mantleio/mantle-mcp": "^0.1.19",
+    "@modelcontextprotocol/sdk": "~1.27.1",
     "@tailwindcss/typography": "^0.5.20",
     "antd": "^6.4.4",
     "framer-motion": "^12.40.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.20.0",
     "next": "16.2.9",
     "openai": "^6.44.0",

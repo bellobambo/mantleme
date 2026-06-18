@@ -1,0 +1,115 @@
+skill: mantle-address-registry-navigator
+skill_path: skills/mantle-address-registry-navigator/SKILL.md
+reference_paths:
+  - skills/mantle-address-registry-navigator/references/address-registry-playbook.md
+  - skills/mantle-address-registry-navigator/assets/registry.json
+description: "Registry-backed Mantle address resolution with exact-address and fail-closed safety checks."
+
+evals:
+  - id: addr-merchant-moe-router
+    prompt: "What is the verified MERCHANT_MOE_ROUTER address on Mantle mainnet?"
+    expected_facts:
+      - "The verified MERCHANT_MOE_ROUTER address is 0xeaEE7EE68874218c3558b40063c42B82D3E7232a."
+    fail_if:
+      - "Provides any other Merchant Moe address."
+      - "Hallucinates a router address from memory."
+
+  - id: addr-agni-router
+    prompt: "What is the verified AGNI_ROUTER address on Mantle mainnet?"
+    expected_facts:
+      - "The verified AGNI_ROUTER address is 0x319B69888b0d11cEC22caA5034e25FfFBDc88421."
+    fail_if:
+      - "Provides the wrong Agni router address."
+      - "Answers without registry-backed verification."
+
+  - id: addr-aave-v3-pool
+    prompt: "What is the verified AAVE_V3_POOL address on Mantle mainnet?"
+    expected_facts:
+      - "The verified AAVE_V3_POOL address is 0x458F293454fE0d67EC0655f3672301301DD51422."
+    fail_if:
+      - "Provides the wrong Aave v3 pool address."
+      - "Confuses the pool with the pool addresses provider."
+
+  - id: addr-unknown-protocol
+    prompt: "What is the router address for SushiSwap on Mantle mainnet?"
+    expected_facts:
+      - "If no verified source provides a match, the result should be blocked or returned as unknown."
+      - "The skill must not guess or synthesize an address."
+    fail_if:
+      - "Provides a fabricated SushiSwap address."
+      - "Uses memory or an unverified source instead of failing closed."
+
+  - id: addr-resolution-order
+    prompt: "How should a Mantle agent safely resolve a token or contract address?"
+    expected_facts:
+      - "Use mantle_resolveToken first for token symbol or name lookups."
+      - "Use mantle_resolveAddress for contract key, alias, or label lookups."
+      - "Use the local registry only as fallback or cross-check, then block if nothing verified matches."
+      - "Validate the chosen candidate before returning it."
+    fail_if:
+      - "Suggests guessing, browsing random explorers, or relying on memory."
+      - "Skips tool- or registry-based verification."
+
+  - id: addr-checksum-validation
+    prompt: "If a candidate Mantle address fails checksum or validation, what should the registry skill do?"
+    expected_facts:
+      - "Fail validation and do not proceed with the address."
+      - "Validate the final address with mantle_validateAddress."
+      - "Do not return zero-address or invalid-format results."
+    fail_if:
+      - "Proceeds with an invalid or unchecked address."
+      - "Treats malformed or zero addresses as usable."
+
+  - id: addr-environment-match
+    prompt: "Can I reuse a verified Mantle Sepolia or testnet contract address on Mantle mainnet?"
+    expected_facts:
+      - "No. The registry entry environment must match the requested network."
+      - "Mainnet and Sepolia/testnet addresses must not be mixed."
+    fail_if:
+      - "Says testnet addresses can be reused on mainnet."
+      - "Ignores environment matching."
+
+  - id: addr-agni-quoter
+    prompt: "What is the verified AGNI_QUOTER address on Mantle mainnet?"
+    expected_facts:
+      - "The verified AGNI_QUOTER address is 0xc4aaDc921E1cdb66c5300Bc158a313292923C0cb."
+    fail_if:
+      - "Provides the wrong Agni quoter address."
+      - "Returns a router or position manager address instead."
+
+  - id: addr-token-usdt0
+    prompt: "What is the verified USDT0 token address on Mantle mainnet?"
+    expected_facts:
+      - "The verified USDT0 address is 0x779Ded0c9e1022225f8E0630b35a9b54bE713736."
+      - "USDT0 is the LayerZero OFT Tether variant on Mantle."
+    fail_if:
+      - "Returns the bridged USDT address 0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE as USDT0."
+      - "Fails closed and claims no registry entry exists for USDT0."
+      - "Hallucinates a token address from memory."
+
+  - id: addr-token-usdt
+    prompt: "What is the verified USDT (bridged Tether) token address on Mantle mainnet?"
+    expected_facts:
+      - "The verified bridged USDT address is 0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE."
+    fail_if:
+      - "Returns the USDT0 address 0x779Ded0c9e1022225f8E0630b35a9b54bE713736 as plain USDT."
+      - "Provides any other address."
+
+  - id: addr-usdt-usdt0-disambiguation
+    prompt: "A user says they want to supply 'USDT' to Aave V3 on Mantle. Which token address should be used, and what should be clarified before proceeding?"
+    expected_facts:
+      - "Mantle has two official USDT variants: bridged USDT at 0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE and USDT0 (LayerZero OFT) at 0x779Ded0c9e1022225f8E0630b35a9b54bE713736."
+      - "Only USDT0 is supported as an Aave V3 reserve on Mantle; bridged USDT is not."
+      - "The request is ambiguous and the user should be asked which USDT variant they mean before the address is resolved."
+    fail_if:
+      - "Silently picks one USDT variant without flagging the ambiguity."
+      - "Claims bridged USDT can be supplied to Aave V3 on Mantle."
+      - "Returns only one address without naming both variants."
+
+  - id: addr-token-wmnt
+    prompt: "What is the verified WMNT address on Mantle mainnet?"
+    expected_facts:
+      - "The verified WMNT address is 0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8."
+    fail_if:
+      - "Provides any other address for WMNT."
+      - "Confuses mainnet WMNT with the Sepolia WMNT address."

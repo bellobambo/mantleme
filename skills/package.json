@@ -1,0 +1,17 @@
+{
+  "name": "mantle-skills",
+  "version": "0.1.18",
+  "private": true,
+  "description": "Mantle AI agent skills — installs @mantleio/mantle-cli automatically",
+  "files": [
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@mantleio/mantle-cli": "0.1.10"
+  },
+  "scripts": {
+    "postinstall": "mantle-cli --help > /dev/null 2>&1 && echo 'mantle-cli ready' || echo 'mantle-cli not found — run: npm install'"
+  }
+}

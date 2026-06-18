@@ -1,167 +1,391 @@
 import OpenAI from 'openai';
 
-// This is the core Agent Engine
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'dummy_key',
 });
 
-// Mantle Agent Skills
-export async function executeTokenSkill() {
+const MNT_ADDRESS = '0x78c1b0c915c4faa5fffa6cabf0219da63d7f4cb8';
+const DAY_SECONDS = 86_400;
+
+export type DataStatus = 'fresh' | 'stale' | 'unavailable' | 'derived';
+
+export type DataMetadata = {
+  source: string;
+  sourceUrl?: string;
+  updatedAt?: string;
+  status: DataStatus;
+  methodology: string;
+};
+
+export type TokenData = {
+  usd?: number;
+  usd_24h_change?: number;
+  usd_market_cap?: number;
+  liquidityUsd?: number;
+  pairs?: number;
+  metadata: DataMetadata;
+  liquidityMetadata: DataMetadata;
+};
+
+export type TVLData = {
+  tvl?: number;
+  change7d?: number;
+  date?: string;
+  comparisonDate?: string;
+  history?: Array<{ date: number; tvl: number }>;
+  metadata: DataMetadata;
+};
+
+export type WalletData = {
+  activeWhales?: number;
+  topWhaleBalance?: string;
+  metadata: DataMetadata;
+};
+
+export type RiskFactor = {
+  label: string;
+  value: string;
+  score: number;
+  weight: number;
+  source: string;
+};
+
+export type RiskData = {
+  score?: string;
+  numericScore?: number;
+  coverage?: number;
+  level?: string;
+  factors: RiskFactor[];
+  unavailableFactors: string[];
+  metadata: DataMetadata;
+};
+
+export type ResearchContext = {
+  token: TokenData;
+  tvl: TVLData;
+  wallet: WalletData;
+  risk: RiskData;
+};
+
+function isoFromUnix(timestamp?: number) {
+  return timestamp ? new Date(timestamp * 1000).toISOString() : undefined;
+}
+
+function freshnessStatus(updatedAt?: string, staleAfterMs = 10 * 60 * 1000): DataStatus {
+  if (!updatedAt) return 'unavailable';
+  return Date.now() - new Date(updatedAt).getTime() <= staleAfterMs ? 'fresh' : 'stale';
+}
+
+async function fetchDexLiquidity() {
   try {
-    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=mantle&vs_currencies=usd&include_market_cap=true&include_24hr_change=true', {
+    const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${MNT_ADDRESS}`, {
       next: { revalidate: 60 },
       headers: { accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`CoinGecko responded with ${res.status}`);
-    const data = await res.json();
-    if (!data.mantle?.usd) throw new Error('CoinGecko returned no Mantle price');
-    return { name: 'Token Research', data: data.mantle };
+    if (!response.ok) throw new Error(`DEX Screener responded with ${response.status}`);
+
+    const payload = await response.json();
+    const mantlePairs = (payload.pairs || [])
+      .filter((pair: { chainId?: string; liquidity?: { usd?: number } }) =>
+        pair.chainId === 'mantle' && Number.isFinite(pair.liquidity?.usd))
+      .sort((a: { liquidity?: { usd?: number } }, b: { liquidity?: { usd?: number } }) =>
+        (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+
+    const updatedAt = new Date().toISOString();
+    return {
+      liquidityUsd: mantlePairs.reduce(
+        (total: number, pair: { liquidity?: { usd?: number } }) => total + (pair.liquidity?.usd || 0),
+        0,
+      ),
+      pairs: mantlePairs.length,
+      metadata: {
+        source: 'DEX Screener',
+        sourceUrl: `https://dexscreener.com/mantle/${MNT_ADDRESS}`,
+        updatedAt,
+        status: 'fresh' as DataStatus,
+        methodology: 'Sum of reported USD liquidity across MNT pairs on Mantle.',
+      },
+    };
   } catch {
-    try {
-      const res = await fetch('https://api.dexscreener.com/latest/dex/tokens/0x78c1b0c915c4faa5fffa6cabf0219da63d7f4cb8', {
+    return {
+      metadata: {
+        source: 'DEX Screener',
+        status: 'unavailable' as DataStatus,
+        methodology: 'DEX liquidity unavailable; no fallback value is substituted.',
+      },
+    };
+  }
+}
+
+export async function executeTokenSkill() {
+  const dexDataPromise = fetchDexLiquidity();
+
+  try {
+    const response = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=mantle&vs_currencies=usd&include_market_cap=true&include_24hr_change=true&include_last_updated_at=true',
+      {
         next: { revalidate: 60 },
         headers: { accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`DexScreener responded with ${res.status}`);
-      const payload = await res.json();
-      const mantlePairs = (payload.pairs || [])
-        .filter((pair: { chainId?: string }) => pair.chainId === 'mantle')
-        .sort((a: { liquidity?: { usd?: number } }, b: { liquidity?: { usd?: number } }) =>
-          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
-      const primary = mantlePairs[0];
-      return {
-        name: 'Token Research',
-        data: {
-          usd: Number(primary?.priceUsd),
-          usd_24h_change: primary?.priceChange?.h24,
-          usd_market_cap: primary?.marketCap || primary?.fdv,
-          liquidityUsd: mantlePairs.reduce(
-            (total: number, pair: { liquidity?: { usd?: number } }) => total + (pair.liquidity?.usd || 0),
-            0,
-          ),
-          pairs: mantlePairs.length,
-        },
-      };
-    } catch {
-      return { name: 'Token Research', data: { error: 'Market data temporarily unavailable' } };
-    }
+      },
+    );
+    if (!response.ok) throw new Error(`CoinGecko responded with ${response.status}`);
+
+    const payload = await response.json();
+    const mantle = payload.mantle;
+    if (!Number.isFinite(mantle?.usd)) throw new Error('CoinGecko returned no Mantle price');
+
+    const updatedAt = isoFromUnix(mantle.last_updated_at);
+    const dexData = await dexDataPromise;
+    const data: TokenData = {
+      usd: mantle.usd,
+      usd_24h_change: Number.isFinite(mantle.usd_24h_change) ? mantle.usd_24h_change : undefined,
+      usd_market_cap: Number.isFinite(mantle.usd_market_cap) ? mantle.usd_market_cap : undefined,
+      liquidityUsd: dexData.liquidityUsd,
+      pairs: dexData.pairs,
+      metadata: {
+        source: 'CoinGecko',
+        sourceUrl: 'https://www.coingecko.com/en/coins/mantle',
+        updatedAt,
+        status: freshnessStatus(updatedAt, 5 * 60 * 1000),
+        methodology: 'CoinGecko aggregated MNT/USD price, 24-hour change and market capitalization.',
+      },
+      liquidityMetadata: dexData.metadata,
+    };
+    return { name: 'Token Research', data };
+  } catch {
+    const dexData = await dexDataPromise;
+    const data: TokenData = {
+      liquidityUsd: dexData.liquidityUsd,
+      pairs: dexData.pairs,
+      metadata: {
+        source: 'CoinGecko',
+        status: 'unavailable',
+        methodology: 'Price and market-cap data unavailable; no fallback price is substituted.',
+      },
+      liquidityMetadata: dexData.metadata,
+    };
+    return { name: 'Token Research', data };
   }
 }
 
 export async function executeTVLSkill() {
   try {
-    const res = await fetch('https://api.llama.fi/v2/historicalChainTvl/Mantle', {
+    const response = await fetch('https://api.llama.fi/v2/historicalChainTvl/Mantle', {
       next: { revalidate: 300 },
       headers: { accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`DeFiLlama responded with ${res.status}`);
-    const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) throw new Error('DeFiLlama returned no Mantle TVL');
-    const latestTVL = data[data.length - 1];
-    const sevenDaysAgo = data[Math.max(0, data.length - 8)];
-    const change7d = sevenDaysAgo?.tvl
-      ? ((latestTVL.tvl - sevenDaysAgo.tvl) / sevenDaysAgo.tvl) * 100
-      : 0;
-    return {
-      name: 'TVL Analysis',
-      data: {
-        tvl: latestTVL.tvl,
-        date: new Date(latestTVL.date * 1000).toISOString(),
-        change7d,
-        history: data.slice(-365),
+    if (!response.ok) throw new Error(`DeFiLlama responded with ${response.status}`);
+
+    const payload = await response.json();
+    const history = (Array.isArray(payload) ? payload : [])
+      .filter((point): point is { date: number; tvl: number } =>
+        Number.isFinite(point?.date) && Number.isFinite(point?.tvl))
+      .sort((a, b) => a.date - b.date);
+    if (history.length === 0) throw new Error('DeFiLlama returned no Mantle TVL');
+
+    const latest = history[history.length - 1];
+    const targetTimestamp = latest.date - (7 * DAY_SECONDS);
+    const comparison = [...history].reverse().find((point) => point.date <= targetTimestamp);
+    const change7d = comparison?.tvl
+      ? ((latest.tvl - comparison.tvl) / comparison.tvl) * 100
+      : undefined;
+    const updatedAt = isoFromUnix(latest.date);
+
+    const data: TVLData = {
+      tvl: latest.tvl,
+      change7d,
+      date: updatedAt,
+      comparisonDate: isoFromUnix(comparison?.date),
+      history: history.slice(-365),
+      metadata: {
+        source: 'DeFiLlama',
+        sourceUrl: 'https://defillama.com/chain/Mantle',
+        updatedAt,
+        status: freshnessStatus(updatedAt, 48 * 60 * 60 * 1000),
+        methodology: comparison
+          ? 'Latest completed daily chain TVL compared with the closest record at or before exactly seven days earlier.'
+          : 'Latest completed daily chain TVL; no valid seven-day comparison record was available.',
       },
     };
+    return { name: 'TVL Analysis', data };
   } catch {
-    return { name: 'TVL Analysis', data: { error: 'Failed to fetch' } };
+    const data: TVLData = {
+      metadata: {
+        source: 'DeFiLlama',
+        status: 'unavailable',
+        methodology: 'TVL data unavailable; no fallback value is substituted.',
+      },
+    };
+    return { name: 'TVL Analysis', data };
   }
 }
 
 export async function executeWalletSkill() {
-  // Simulating onchain data for whales since live explorer tracking needs specific wallet addresses
-  return {
-    name: 'Wallet Tracking',
-    data: {
-      activeWhales: 142,
-      topWhaleBalance: '42,000,000 MNT',
-      recentLargeTransfers: [
-        { from: '0x...', to: '0x...', amount: '500,000 MNT', type: 'Staking' },
-      ],
+  const data: WalletData = {
+    metadata: {
+      source: 'Not configured',
+      status: 'unavailable',
+      methodology: 'Requires an indexed Mantle holder and transfer dataset with labeled contract, bridge, exchange and treasury addresses.',
     },
   };
+  return { name: 'Wallet Tracking', data };
 }
 
-export async function executeRiskSkill() {
-  return {
-    name: 'Risk Scoring',
-    data: {
-      score: 'A-',
-      liquidityRisk: 'Low',
-      concentrationRisk: 'Medium',
-      notes: 'Strong liquidity depth across major DEXes. Moderate concentration in top 10 wallets.',
+function liquidityScore(liquidityUsd: number, marketCap: number) {
+  const ratio = liquidityUsd / marketCap;
+  if (ratio >= 0.025) return 90;
+  if (ratio >= 0.01) return 75;
+  if (ratio >= 0.005) return 60;
+  return 35;
+}
+
+function volatilityScore(change24h: number) {
+  const magnitude = Math.abs(change24h);
+  if (magnitude <= 3) return 90;
+  if (magnitude <= 7) return 75;
+  if (magnitude <= 12) return 55;
+  return 30;
+}
+
+function tvlTrendScore(change7d: number) {
+  if (change7d >= 0) return 85;
+  if (change7d >= -5) return 70;
+  if (change7d >= -10) return 50;
+  return 30;
+}
+
+function gradeForScore(score: number) {
+  if (score >= 85) return { grade: 'A', level: 'Low measured risk' };
+  if (score >= 75) return { grade: 'B', level: 'Moderate-low measured risk' };
+  if (score >= 60) return { grade: 'C', level: 'Moderate measured risk' };
+  if (score >= 45) return { grade: 'D', level: 'Elevated measured risk' };
+  return { grade: 'E', level: 'High measured risk' };
+}
+
+export async function executeRiskSkill(token: TokenData, tvl: TVLData) {
+  const factors: RiskFactor[] = [];
+
+  if (Number.isFinite(token.liquidityUsd) && Number.isFinite(token.usd_market_cap) && token.usd_market_cap! > 0) {
+    const ratio = token.liquidityUsd! / token.usd_market_cap!;
+    factors.push({
+      label: 'DEX liquidity / market cap',
+      value: `${(ratio * 100).toFixed(2)}%`,
+      score: liquidityScore(token.liquidityUsd!, token.usd_market_cap!),
+      weight: 30,
+      source: 'DEX Screener + CoinGecko',
+    });
+  }
+
+  if (Number.isFinite(token.usd_24h_change)) {
+    factors.push({
+      label: '24h price movement',
+      value: `${token.usd_24h_change!.toFixed(2)}%`,
+      score: volatilityScore(token.usd_24h_change!),
+      weight: 20,
+      source: 'CoinGecko',
+    });
+  }
+
+  if (Number.isFinite(tvl.change7d)) {
+    factors.push({
+      label: '7d TVL trend',
+      value: `${tvl.change7d!.toFixed(2)}%`,
+      score: tvlTrendScore(tvl.change7d!),
+      weight: 20,
+      source: 'DeFiLlama',
+    });
+  }
+
+  const availableWeight = factors.reduce((total, factor) => total + factor.weight, 0);
+  const numericScore = availableWeight
+    ? Math.round(factors.reduce((total, factor) => total + factor.score * factor.weight, 0) / availableWeight)
+    : undefined;
+  const grade = numericScore === undefined ? undefined : gradeForScore(numericScore);
+  const unavailableFactors = [
+    'Holder concentration',
+    'Whale net flows',
+    'Contract/admin-key risk',
+  ];
+
+  const data: RiskData = {
+    score: grade?.grade,
+    numericScore,
+    coverage: availableWeight,
+    level: grade?.level,
+    factors,
+    unavailableFactors,
+    metadata: {
+      source: 'MantleMe transparent risk model v1',
+      updatedAt: new Date().toISOString(),
+      status: numericScore === undefined ? 'unavailable' : 'derived',
+      methodology: availableWeight
+        ? `Weighted score normalized across available factors only, covering ${availableWeight}% of the full model. Missing factors are excluded, not estimated.`
+        : 'Insufficient sourced inputs to calculate a score.',
     },
   };
+  return { name: 'Risk Scoring', data };
 }
 
-type ResearchContext = {
-  token?: {
-    usd?: number;
-    usd_24h_change?: number;
-    usd_market_cap?: number;
-  };
-  tvl?: { tvl?: number };
-  wallet?: { activeWhales?: number; topWhaleBalance?: string };
-  risk?: { score?: string; liquidityRisk?: string };
-};
+function displayNumber(value?: number, suffix = '') {
+  return Number.isFinite(value) ? `${value!.toFixed(2)}${suffix}` : 'Unavailable';
+}
 
 export async function generateReport(query: string, dataContext: ResearchContext) {
-  // Fallback if no OpenAI key is set, we will generate a static response
   if (!process.env.OPENAI_API_KEY) {
     return `# Mantle Research Report: ${query}
 
-## Executive Summary
-This report was generated using the **Mantle AI Research Agent** with modular skills.
+## Data quality
+- **Price source:** ${dataContext.token.metadata.source} (${dataContext.token.metadata.status})
+- **TVL source:** ${dataContext.tvl.metadata.source} (${dataContext.tvl.metadata.status})
+- **Wallet analytics:** ${dataContext.wallet.metadata.status}
+- **Risk model:** ${dataContext.risk.metadata.source} (${dataContext.risk.metadata.status})
 
-### 🪙 Token Research
-* **Current Price:** $${dataContext.token?.usd || '0.85'}
-* **24h Change:** ${dataContext.token?.usd_24h_change?.toFixed(2) || '+2.4'}%
-* **Market Cap:** $${dataContext.token?.usd_market_cap
-  ? (dataContext.token.usd_market_cap / 1e9).toFixed(2)
-  : '2.7'}B
+## Token metrics
+- **Current price:** ${Number.isFinite(dataContext.token.usd) ? `$${dataContext.token.usd}` : 'Unavailable'}
+- **24h change:** ${displayNumber(dataContext.token.usd_24h_change, '%')}
+- **Market cap:** ${Number.isFinite(dataContext.token.usd_market_cap) ? `$${dataContext.token.usd_market_cap}` : 'Unavailable'}
+- **DEX liquidity:** ${Number.isFinite(dataContext.token.liquidityUsd) ? `$${dataContext.token.liquidityUsd}` : 'Unavailable'}
 
-### 📈 TVL Analysis
-* **Current TVL:** $${dataContext.tvl?.tvl
-  ? (dataContext.tvl.tvl / 1e6).toFixed(2)
-  : '400'} Million
+## TVL analysis
+- **Current TVL:** ${Number.isFinite(dataContext.tvl.tvl) ? `$${dataContext.tvl.tvl}` : 'Unavailable'}
+- **7d change:** ${displayNumber(dataContext.tvl.change7d, '%')}
+- **Methodology:** ${dataContext.tvl.metadata.methodology}
 
-### 🐋 Wallet Tracking
-* **Active Whales:** ${dataContext.wallet?.activeWhales || 142}
-* **Top Balance:** ${dataContext.wallet?.topWhaleBalance || '42M MNT'}
+## Wallet tracking
+${dataContext.wallet.metadata.methodology}
 
-### ⚠️ Risk Scoring
-* **Overall Score:** ${dataContext.risk?.score || 'A-'}
-* **Liquidity Risk:** ${dataContext.risk?.liquidityRisk || 'Low'}
+## Calculated risk
+- **Grade:** ${dataContext.risk.score || 'Unavailable'}
+- **Numeric score:** ${dataContext.risk.numericScore ?? 'Unavailable'}
+- **Model coverage:** ${dataContext.risk.coverage ?? 0}%
+- **Methodology:** ${dataContext.risk.metadata.methodology}
+- **Unavailable factors:** ${dataContext.risk.unavailableFactors.join(', ')}
 
-*Note: Add OPENAI_API_KEY to your .env file to enable dynamic AI summaries.*`;
+*Add OPENAI_API_KEY to enable narrative AI synthesis. No unavailable values are replaced with fabricated defaults.*`;
   }
 
   const prompt = `You are a Mantle DeFi Research Agent. The user asked: "${query}".
-Use the following on-chain data to generate a structured markdown report:
+Use only the supplied data. Never invent missing values, holder statistics, wallet activity, risk factors, sources, or dates.
+Clearly distinguish sourced measurements from derived scores and state when data is unavailable.
+
 Data: ${JSON.stringify(dataContext)}
 
 Format with:
 - Executive Summary
+- Data Quality and Sources
 - Token Metrics
 - Protocol/TVL Trends
-- Risk Assessment
-Make it professional, concise, and highly informative. Use emojis for section headers.`;
+- Wallet Data Availability
+- Calculated Risk Assessment and Missing Factors
+Make it professional, concise, and highly informative.`;
 
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'system', content: prompt }],
     });
-    return response.choices[0].message.content;
+    return response.choices[0].message.content || '# Report unavailable';
   } catch {
-    return `# Error generating report \n\n Please check your OpenAI API key.`;
+    return '# Error generating report\n\nPlease check the OpenAI API key and service availability.';
   }
 }

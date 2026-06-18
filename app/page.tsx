@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ConfigProvider, Drawer } from "antd";
+import { ConfigProvider, Drawer, Dropdown } from "antd";
 import ReactMarkdown from "react-markdown";
 import {
   Area,
@@ -17,6 +17,7 @@ import {
   Bot,
   BrainCircuit,
   Check,
+  ChevronDown,
   Download,
   ExternalLink,
   FileText,
@@ -36,22 +37,44 @@ type ResearchData = {
     usd_market_cap?: number;
     liquidityUsd?: number;
     pairs?: number;
+    metadata?: DataMetadata;
+    liquidityMetadata?: DataMetadata;
   };
   tvl?: {
     tvl?: number;
     change7d?: number;
+    date?: string;
+    comparisonDate?: string;
     history?: Array<{ date: number; tvl: number }>;
+    metadata?: DataMetadata;
   };
-  wallet?: { activeWhales?: number; topWhaleBalance?: string };
-  risk?: { score?: string; liquidityRisk?: string; concentrationRisk?: string };
+  wallet?: {
+    activeWhales?: number;
+    topWhaleBalance?: string;
+    metadata?: DataMetadata;
+  };
+  risk?: {
+    score?: string;
+    numericScore?: number;
+    coverage?: number;
+    level?: string;
+    metadata?: DataMetadata;
+  };
+};
+
+type DataMetadata = {
+  source: string;
+  updatedAt?: string;
+  status: "fresh" | "stale" | "unavailable" | "derived";
+  methodology: string;
 };
 
 const skills = [
-  { name: "Token Research", detail: "Price, liquidity & pairs", icon: Activity },
-  { name: "TVL Analysis", detail: "Protocol growth trends", icon: Network },
-  { name: "Wallet Tracking", detail: "Transactions & whale flows", icon: Wallet },
-  { name: "Risk Scoring", detail: "Liquidity & concentration", icon: ShieldCheck },
-  { name: "Report Skill", detail: "Structured AI synthesis", icon: FileText },
+  { name: "mantle-network-primer", label: "Network Primer", detail: "Official Mantle context", icon: Network },
+  { name: "mantle-data-indexer", label: "Data Indexer", detail: "Historical analytics workflow", icon: Activity },
+  { name: "mantle-portfolio-analyst", label: "Portfolio Analyst", detail: "Balances and exposure", icon: Wallet },
+  { name: "mantle-defi-operator", label: "DeFi Operator", detail: "Protocols and liquidity", icon: Zap },
+  { name: "mantle-risk-evaluator", label: "Risk Evaluator", detail: "Safety and risk guardrails", icon: ShieldCheck },
 ];
 
 const ecosystemUpdates = [
@@ -59,31 +82,37 @@ const ecosystemUpdates = [
     tag: "APRIL 2026 · CHAT-NATIVE",
     title: "Mantle flows in daily chat",
     copy: "Purr-Fect Claw brings Mantle AI Agent Skills to WhatsApp, Line, Kakao and more.",
-    href: "https://x.com/Mantle_Official/status/2044771070276956579?s=20",
+    href: "https://x.com/pieverse_io/status/2039674214375117111?s=20",
   },
   {
     tag: "APRIL 2026 · PROMPT-TO-DEFI",
     title: "INFINIT on Mantle",
     copy: "One prompt can swap through LI.FI or lend and borrow through Aave on Mantle.",
-    href: "https://x.com/Mantle_Official/status/2044771070276956579?s=20",
+    href: "https://x.com/Infinit_Labs/status/2041486236733624627?s=20",
   },
   {
     tag: "APRIL 2026 · LIVE INTEL",
     title: "Fluxion × Elfa AI",
-    copy: "Real-time social alpha, asset queries and trade setups now live inside the trading terminal.",
-    href: "https://x.com/Mantle_Official/status/2044771070276956579?s=20",
+    copy: "The intel you needed mid-trade is now inside the terminal: real-time social alpha, asset queries and trade setups without leaving Fluxion.",
+    href: "https://x.com/Fluxion_network/status/2041472520906506347?s=20",
+  },
+  {
+    tag: "OCTOBER 2025 · AUTONOMOUS PAYMENTS",
+    title: "x402 facilitator × Questflow",
+    copy: "Questflow's x402 facilitator enables autonomous, real-time payments embedded directly into Mantle's modular chain.",
+    href: "https://x.com/Mantle_Official/status/1982662047621079157?s=20",
   },
   {
     tag: "MARCH 2026 · COMMUNITY",
     title: "When AI Meets Mantle",
-    copy: "Mantle's creator initiative helps researchers, builders and creators explore practical AI workflows.",
-    href: "https://x.com/Mantle_Official/status/2044771070276956579?s=20",
+    copy: "We introduced AI Agent Skills & Scaffold on Mantle, allowing faster integration, more accurate execution, built for connected environments.",
+    href: "https://x.com/Mantle_Official/status/2032422157880619166?s=20",
   },
   {
-    tag: "LIVE · TURING TEST",
-    title: "ClawHack Phase 1",
-    copy: "A live build track expanding Mantle's agentic economy through useful, demonstrable agent experiences.",
-    href: "https://x.com/Mantle_Official/status/2044771070276956579?s=20",
+    tag: "MARCH 2026 · TURING TEST",
+    title: "OpenClaw agents can now trade on Mantle",
+    copy: "Ask it to look up a token, check prices and execute all via natural language on @byreal_io.",
+    href: "https://x.com/byreal_io/status/2029498273623379991?s=20",
   },
 ];
 
@@ -101,6 +130,23 @@ function formatMoney(value?: number, compact = true) {
     notation: compact ? "compact" : "standard",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatSource(metadata?: DataMetadata, isLoading = false) {
+  if (isLoading) return "Loading source…";
+  if (!metadata) return "";
+  if (!metadata.updatedAt) return `${metadata.source} · ${metadata.status}`;
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(metadata.updatedAt).getTime()) / 1000));
+  const elapsed = elapsedSeconds < 60
+    ? `${elapsedSeconds}s ago`
+    : elapsedSeconds < 3600
+      ? `${Math.floor(elapsedSeconds / 60)}m ago`
+      : elapsedSeconds < 86_400
+        ? `${Math.floor(elapsedSeconds / 3600)}h ago`
+        : `${Math.floor(elapsedSeconds / 86_400)}d ago`;
+
+  return `${metadata.source} · ${elapsed}`;
 }
 
 const chartRanges = [
@@ -206,6 +252,8 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isMetricsLoading, setIsMetricsLoading] = useState(true);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [activeDeepDive, setActiveDeepDive] = useState<string | null>(null);
+  const [isSavingPdf, setIsSavingPdf] = useState(false);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -224,10 +272,13 @@ export default function Home() {
     void loadDashboardData();
   }, []);
 
-  const handleResearch = async (event?: FormEvent) => {
-    event?.preventDefault();
-    if (!query.trim() || isLoading) return;
+  const runResearch = async (researchQuery: string, deepDiveTitle?: string) => {
+    const trimmedQuery = researchQuery.trim();
+    if (!trimmedQuery || isLoading) return;
+
+    setQuery(trimmedQuery);
     setIsLoading(true);
+    setActiveDeepDive(deepDiveTitle || null);
     setError("");
     setResult(null);
     setActiveSkills([]);
@@ -236,7 +287,7 @@ export default function Home() {
       const response = await fetch("/api/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim() }),
+        body: JSON.stringify({ query: trimmedQuery }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Research request failed");
@@ -248,24 +299,134 @@ export default function Home() {
       setError(requestError instanceof Error ? requestError.message : "Unable to run the research agent");
     } finally {
       setIsLoading(false);
+      setActiveDeepDive(null);
     }
   };
 
-  const handleDownload = () => {
+  const handleResearch = (event?: FormEvent) => {
+    event?.preventDefault();
+    void runResearch(query);
+  };
+
+  const handleDeepDive = (update: (typeof ecosystemUpdates)[number]) => {
+    const researchQuery = [
+      `Deep dive into this Mantle ecosystem signal: "${update.title}".`,
+      update.copy,
+      `Explain what it is, how it works, why it matters to Mantle users and builders,`,
+      `the key opportunities, dependencies and risks, and practical next steps.`,
+      `Source context: ${update.href}`,
+    ].join(" ");
+
+    void runResearch(researchQuery, update.title);
+  };
+
+  const reportFilename = `mantle-research-${new Date().toISOString().split("T")[0]}`;
+
+  const handleMarkdownDownload = () => {
     if (!result) return;
     const url = URL.createObjectURL(new Blob([result], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `mantle-research-${new Date().toISOString().split("T")[0]}.md`;
+    anchor.download = `${reportFilename}.md`;
     anchor.click();
     URL.revokeObjectURL(url);
   };
 
+  const handlePdfDownload = async () => {
+    if (!result || isSavingPdf) return;
+    setIsSavingPdf(true);
+
+    try {
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({ unit: "pt", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 48;
+      const contentWidth = pageWidth - margin * 2;
+      let y = margin;
+
+      const ensureSpace = (height: number) => {
+        if (y + height <= pageHeight - margin) return;
+        pdf.addPage();
+        y = margin;
+      };
+
+      pdf.setTextColor(36, 91, 67);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(18);
+      pdf.text("MantleMe Research Report", margin, y);
+      y += 22;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(95, 119, 108);
+      pdf.text(`Generated ${new Date().toLocaleString()}`, margin, y);
+      y += 28;
+
+      const lines = result
+        .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-z]*\n?/gi, "").replace(/```/g, ""))
+        .split("\n");
+
+      for (const rawLine of lines) {
+        const headingMatch = rawLine.match(/^(#{1,3})\s+(.+)$/);
+        const isListItem = /^\s*[-*]\s+/.test(rawLine);
+        const text = rawLine
+          .replace(/^(#{1,6})\s+/, "")
+          .replace(/^\s*[-*]\s+/, "- ")
+          .replace(/\*\*(.*?)\*\*/g, "$1")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/\[(.*?)\]\((.*?)\)/g, "$1 ($2)")
+          .replace(/[^\x20-\x7E]/g, " ")
+          .trim();
+
+        if (!text) {
+          y += 8;
+          continue;
+        }
+
+        const fontSize = headingMatch ? (headingMatch[1].length === 1 ? 16 : headingMatch[1].length === 2 ? 13 : 11) : 10;
+        const lineHeight = fontSize * 1.45;
+        pdf.setFont("helvetica", headingMatch ? "bold" : "normal");
+        pdf.setFontSize(fontSize);
+        pdf.setTextColor(36, 91, 67);
+
+        const wrapped = pdf.splitTextToSize(text, contentWidth - (isListItem ? 10 : 0)) as string[];
+        ensureSpace(wrapped.length * lineHeight + (headingMatch ? 7 : 2));
+        pdf.text(wrapped, margin + (isListItem ? 10 : 0), y);
+        y += wrapped.length * lineHeight + (headingMatch ? 7 : 2);
+      }
+
+      pdf.save(`${reportFilename}.pdf`);
+    } finally {
+      setIsSavingPdf(false);
+    }
+  };
+
   const metrics = [
-    { label: "MNT price", value: isMetricsLoading ? "Loading…" : formatMoney(data.token?.usd, false), delta: data.token?.usd_24h_change },
-    { label: "Mantle TVL", value: isMetricsLoading ? "Loading…" : formatMoney(data.tvl?.tvl), delta: data.tvl?.change7d },
-    { label: "Market cap", value: isMetricsLoading ? "Loading…" : formatMoney(data.token?.usd_market_cap), delta: undefined },
-    { label: "Risk score", value: data.risk?.score || "A-", note: data.risk?.liquidityRisk || "Low liquidity risk" },
+    {
+      label: "MNT price",
+      value: isMetricsLoading ? "Loading…" : formatMoney(data.token?.usd, false),
+      delta: data.token?.usd_24h_change,
+      note: formatSource(data.token?.metadata, isMetricsLoading),
+    },
+    {
+      label: "Mantle TVL",
+      value: isMetricsLoading ? "Loading…" : formatMoney(data.tvl?.tvl),
+      delta: data.tvl?.change7d,
+      note: formatSource(data.tvl?.metadata, isMetricsLoading),
+    },
+    {
+      label: "Market cap",
+      value: isMetricsLoading ? "Loading…" : formatMoney(data.token?.usd_market_cap),
+      note: formatSource(data.token?.metadata, isMetricsLoading),
+    },
+    {
+      label: "Calculated risk",
+      value: isMetricsLoading ? "Loading…" : data.risk?.score || "Unavailable",
+      note: data.risk?.numericScore !== undefined
+        ? `${data.risk.numericScore}/100 · ${data.risk.coverage ?? 0}% coverage`
+        : "Insufficient sourced inputs",
+    },
   ];
 
   return (
@@ -290,7 +451,13 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="network-pill"><span /> Mantle Mainnet <b>LIVE</b></div>
+        <div className="network-actions">
+          <div className="network-pill"><span className="live-dot" /> Mantle Mainnet <b>LIVE</b></div>
+          <a className="get-mnt-link" href="https://www.mantle.xyz/mnt" target="_blank" rel="noreferrer">
+            Get MNT
+            <ExternalLink size={13} />
+          </a>
+        </div>
 
         <section className="sidebar-section">
           <div className="section-heading">
@@ -299,11 +466,25 @@ export default function Home() {
           </div>
           <div className="update-list">
             {ecosystemUpdates.map((update) => (
-              <a className="update-card" href={update.href} target="_blank" rel="noreferrer" key={update.title}>
-                <div><span>{update.tag}</span><ExternalLink size={12} /></div>
+              <article className="update-card" key={update.title}>
+                <div className="update-card-meta">
+                  <span>{update.tag}</span>
+                  <a href={update.href} target="_blank" rel="noreferrer" aria-label={`Open source for ${update.title}`}>
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
                 <strong>{update.title}</strong>
                 <p>{update.copy}</p>
-              </a>
+                <button
+                  className="update-learn-more"
+                  disabled={isLoading}
+                  onClick={() => handleDeepDive(update)}
+                  type="button"
+                >
+                  {activeDeepDive === update.title ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+                  {activeDeepDive === update.title ? "Researching…" : "Learn more"}
+                </button>
+              </article>
             ))}
           </div>
         </section>
@@ -316,7 +497,6 @@ export default function Home() {
             <p className="eyebrow">MANTLEME · RESEARCH AGENT</p>
             <h1>Research the onchain economy.</h1>
           </div>
-          <div className="system-status"><span /> Agent engine operational</div>
         </header>
 
         <section className="metrics-grid">
@@ -325,10 +505,13 @@ export default function Home() {
               <span>{metric.label}</span>
               <strong>{metric.value}</strong>
               {metric.delta !== undefined ? (
-                <small className={metric.delta >= 0 ? "positive" : "negative"}>
-                  {metric.delta >= 0 ? "+" : ""}{metric.delta.toFixed(2)}%
-                </small>
-              ) : <small>{metric.note || "Live market context"}</small>}
+                <>
+                  <small className={metric.delta >= 0 ? "positive" : "negative"}>
+                    {metric.delta >= 0 ? "+" : ""}{metric.delta.toFixed(2)}%
+                  </small>
+                  {metric.note && <small className="metric-source">{metric.note}</small>}
+                </>
+              ) : metric.note ? <small className="metric-source">{metric.note}</small> : null}
             </div>
           ))}
         </section>
@@ -367,7 +550,13 @@ export default function Home() {
             <div className="panel chart-panel">
               <div className="panel-header">
                 <div><span>MANTLE NETWORK</span><h3>Total value locked</h3></div>
-                <div className="chart-stat"><strong>{formatMoney(data.tvl?.tvl)}</strong><span>LIVE DATA</span></div>
+                <div className="chart-stat">
+                  <strong>{formatMoney(data.tvl?.tvl)}</strong>
+                  <span className="chart-live-label">
+                    {data.tvl?.metadata?.status === "fresh" && <i className="live-dot" />}
+                    {formatSource(data.tvl?.metadata, isMetricsLoading)}
+                  </span>
+                </div>
               </div>
               <TvlChart history={data.tvl?.history} />
             </div>
@@ -380,11 +569,11 @@ export default function Home() {
               <div className="skills-list">
                 {skills.map((skill, index) => {
                   const Icon = skill.icon;
-                  const active = activeSkills.includes(skill.name) || (skill.name === "Report Skill" && Boolean(result));
+                  const active = activeSkills.includes(skill.name);
                   return (
                     <div className={`skill-row ${active ? "active" : ""}`} key={skill.name}>
                       <div className="skill-icon">{isLoading ? <Loader2 className="spin" size={17} /> : <Icon size={17} />}</div>
-                      <div><strong>{skill.name}</strong><span>{skill.detail}</span></div>
+                      <div><strong>{skill.label}</strong><span>{skill.detail}</span></div>
                       <div className="skill-state">{active ? <Check size={14} /> : index + 1}</div>
                     </div>
                   );
@@ -415,10 +604,26 @@ export default function Home() {
         onClose={() => setIsReportOpen(false)}
         destroyOnHidden
         extra={
-          <button className="drawer-download" onClick={handleDownload} type="button">
-            <Download size={15} />
-            Download .md
-          </button>
+          <Dropdown
+            placement="bottomRight"
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "pdf", icon: <FileText size={14} />, label: "Download as PDF" },
+                { key: "markdown", icon: <Download size={14} />, label: "Download as Markdown" },
+              ],
+              onClick: ({ key }) => {
+                if (key === "pdf") void handlePdfDownload();
+                if (key === "markdown") handleMarkdownDownload();
+              },
+            }}
+          >
+            <button className="drawer-save" disabled={isSavingPdf} type="button">
+              {isSavingPdf ? <Loader2 className="spin" size={15} /> : <Download size={15} />}
+              {isSavingPdf ? "Saving…" : "Save"}
+              <ChevronDown size={13} />
+            </button>
+          </Dropdown>
         }
       >
         <div className="report-content prose"><ReactMarkdown>{result || ""}</ReactMarkdown></div>
