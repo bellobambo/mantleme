@@ -593,9 +593,21 @@ export default function Home() {
       <Drawer
         className="report-drawer"
         title={
-          <div className="drawer-title">
-            <span>GENERATED OUTPUT</span>
-            <strong>MantleMe research report</strong>
+          <div className="drawer-title" style={{ display: "flex", alignItems: "center", gap: "32px" }}>
+            <div>
+              <span>GENERATED OUTPUT</span>
+              <strong>MantleMe research report</strong>
+            </div>
+            <div style={{ display: "flex", gap: "16px", fontSize: "12px" }}>
+              <a href="https://docs.mantle.xyz/" target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "6px", opacity: 0.8, textDecoration: "none", color: "var(--green)", fontWeight: 600 }}>
+                <ExternalLink size={14} />
+                Mantle Docs
+              </a>
+              <a href="https://www.mantle.xyz/ecosystem" target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "6px", opacity: 0.8, textDecoration: "none", color: "var(--green)", fontWeight: 600 }}>
+                <ExternalLink size={14} />
+                Ecosystem
+              </a>
+            </div>
           </div>
         }
         placement="right"
