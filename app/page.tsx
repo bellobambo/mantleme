@@ -97,12 +97,6 @@ const ecosystemUpdates = [
     href: "https://x.com/Fluxion_network/status/2041472520906506347?s=20",
   },
   {
-    tag: "OCTOBER 2025 · AUTONOMOUS PAYMENTS",
-    title: "x402 facilitator × Questflow",
-    copy: "Questflow's x402 facilitator enables autonomous, real-time payments embedded directly into Mantle's modular chain.",
-    href: "https://x.com/Mantle_Official/status/1982662047621079157?s=20",
-  },
-  {
     tag: "MARCH 2026 · COMMUNITY",
     title: "When AI Meets Mantle",
     copy: "We introduced AI Agent Skills & Scaffold on Mantle, allowing faster integration, more accurate execution, built for connected environments.",
@@ -113,6 +107,12 @@ const ecosystemUpdates = [
     title: "OpenClaw agents can now trade on Mantle",
     copy: "Ask it to look up a token, check prices and execute all via natural language on @byreal_io.",
     href: "https://x.com/byreal_io/status/2029498273623379991?s=20",
+  },
+  {
+    tag: "OCTOBER 2025 · AUTONOMOUS PAYMENTS",
+    title: "x402 facilitator × Questflow",
+    copy: "Questflow's x402 facilitator enables autonomous, real-time payments embedded directly into Mantle's modular chain.",
+    href: "https://x.com/Mantle_Official/status/1982662047621079157?s=20",
   },
 ];
 
@@ -147,6 +147,50 @@ function formatSource(metadata?: DataMetadata, isLoading = false) {
         : `${Math.floor(elapsedSeconds / 86_400)}d ago`;
 
   return `${metadata.source} · ${elapsed}`;
+}
+
+function formatReportForDisplay(report: string) {
+  let formatted = report.replace(
+    /(?:collected_at_utc|Collected at UTC):\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/gi,
+    (_, timestamp: string) => {
+      const collectedAt = new Date(timestamp);
+      if (Number.isNaN(collectedAt.getTime())) return `Collected: ${timestamp}`;
+
+      const dateStr = new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "UTC",
+        timeZoneName: "short",
+      }).format(collectedAt);
+
+      return `Collected: ${dateStr}`;
+    },
+  );
+
+  formatted = formatted.replace(
+    /(\s*[-*]\s+)(?:\*\*)?([a-z0-9_]+)(?:\*\*)?:(?:\*\*)?/g,
+    (_, prefix: string, key: string) => {
+      const titleCaseKey = key
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+
+      const finalKey = titleCaseKey
+        .replace(/\bUsd\b/g, "USD")
+        .replace(/\bId\b/g, "ID")
+        .replace(/\bLp\b/g, "LP")
+        .replace(/\bLb\b/g, "LB")
+        .replace(/\bV3\b/gi, "V3")
+        .replace(/\bAave\b/gi, "Aave");
+
+      return `${prefix}**${finalKey}**:`;
+    }
+  );
+
+  return formatted;
 }
 
 const chartRanges = [
@@ -324,7 +368,7 @@ export default function Home() {
 
   const handleMarkdownDownload = () => {
     if (!result) return;
-    const url = URL.createObjectURL(new Blob([result], { type: "text/markdown" }));
+    const url = URL.createObjectURL(new Blob([formatReportForDisplay(result)], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `${reportFilename}.md`;
@@ -363,7 +407,7 @@ export default function Home() {
       pdf.text(`Generated ${new Date().toLocaleString()}`, margin, y);
       y += 28;
 
-      const lines = result
+      const lines = formatReportForDisplay(result || "")
         .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-z]*\n?/gi, "").replace(/```/g, ""))
         .split("\n");
 
@@ -421,11 +465,13 @@ export default function Home() {
       note: formatSource(data.token?.metadata, isMetricsLoading),
     },
     {
-      label: "Calculated risk",
-      value: isMetricsLoading ? "Loading…" : data.risk?.score || "Unavailable",
-      note: data.risk?.numericScore !== undefined
-        ? `${data.risk.numericScore}/100 · ${data.risk.coverage ?? 0}% coverage`
-        : "Insufficient sourced inputs",
+      label: "DEX liquidity",
+      value: isMetricsLoading ? "Loading…" : formatMoney(data.token?.liquidityUsd),
+      note: isMetricsLoading
+        ? "Loading source…"
+        : data.token?.pairs !== undefined
+          ? `${data.token.pairs} tracked MNT pairs · ${formatSource(data.token.liquidityMetadata)}`
+          : formatSource(data.token?.liquidityMetadata),
     },
   ];
 
@@ -638,7 +684,9 @@ export default function Home() {
           </Dropdown>
         }
       >
-        <div className="report-content prose"><ReactMarkdown>{result || ""}</ReactMarkdown></div>
+        <div className="report-content prose">
+          <ReactMarkdown>{formatReportForDisplay(result || "")}</ReactMarkdown>
+        </div>
       </Drawer>
     </main>
     </ConfigProvider>

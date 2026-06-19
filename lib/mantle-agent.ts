@@ -23,8 +23,17 @@ const TOOLS_BY_SKILL: Record<string, Set<string>> = {
     'mantle_querySubgraph',
     'mantle_queryIndexerSql',
   ]),
-  // Upstream requires mantle-cli for this workflow and explicitly forbids MCP.
-  'mantle-portfolio-analyst': new Set(),
+  // Web-safe, read-only subset of the CLI-first upstream portfolio workflow.
+  'mantle-portfolio-analyst': new Set([
+    'mantle_validateAddress',
+    'mantle_getChainInfo',
+    'mantle_getChainStatus',
+    'mantle_getBalance',
+    'mantle_getTokenBalances',
+    'mantle_getAllowances',
+    'mantle_getTokenPrices',
+    'mantle_getTokenInfo',
+  ]),
   'mantle-defi-operator': new Set([
     'mantle_getChainInfo',
     'mantle_getChainStatus',
@@ -110,14 +119,28 @@ export async function runMantleSkillAgent(query: string, dataContext: ResearchCo
           'Follow the official Mantle Agent Skill below as workflow and guardrails.',
           'Use Mantle MCP tools as deterministic evidence. Never invent addresses, prices, balances, endpoints, or tool results.',
           'This application is research-only: never request or attempt transaction-building, signing, or broadcasting.',
+          'Return only the final user-facing findings. Never expose internal workflow steps, planning, command examples, tool-call syntax, placeholders, or statements about what you will do next.',
+          'Format the report as normal Markdown headings, paragraphs, and lists. Never wrap the full report in a fenced code block.',
+          'Write dates for people, for example "June 19, 2026 at 2:28 PM UTC". Do not expose raw field names such as collected_at_utc.',
+          'Use Mantle Mainnet by default. Mention the network once in the report; do not ask the user to confirm it unless they explicitly request another network.',
           'If a required indexer endpoint or wallet address is missing, follow the skill blocked-output rules and state exactly what is required.',
           `Indexer configuration: GraphQL=${process.env.MANTLE_SUBGRAPH_ENDPOINT ? 'configured server-side' : 'not configured'}; SQL=${process.env.MANTLE_SQL_INDEXER_ENDPOINT ? 'configured server-side' : 'not configured'}. Never invent an endpoint.`,
-          selectedSkill === 'mantle-portfolio-analyst'
-            ? 'This upstream skill is CLI-only and forbids MCP. No CLI tools are exposed in this web runtime, so follow its blocked behavior rather than substituting MCP calls.'
-            : '',
           'Cite each MCP tool used in a Data Sources section.',
           '',
           skill.instructions,
+          '',
+          'APPLICATION-SPECIFIC OUTPUT RULES (these override conflicting workflow presentation or tool restrictions above):',
+          selectedSkill === 'mantle-portfolio-analyst'
+            ? [
+                'WEB PORTFOLIO MODE: adapt the CLI-first skill to the available read-only MCP tools.',
+                'Use the wallet address from the request and assume Mantle Mainnet.',
+                'Call the available validation, chain, balance, token-balance, price, and allowance tools when their required inputs are known.',
+                'Do not print or recommend mantle-cli commands.',
+                'Do not claim Aave or LP coverage because those position tools are unavailable in this web runtime.',
+                'If allowance pairs are not supplied and cannot be resolved, omit allowance results and label that coverage gap in one short sentence.',
+                'Present compact sections for wallet summary, balances, approvals if available, and coverage notes.',
+              ].join(' ')
+            : '',
         ].join('\n'),
       },
       {
