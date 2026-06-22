@@ -69,9 +69,8 @@ MantleMe routes the request to the relevant DeFi research workflow, compares tim
 
 The report opens in the dashboard drawer and can be downloaded as Markdown.
 
-## Track 2 approach
 
-MantleMe fits the Research Agent track by turning an onchain research process into a usable, reproducible product. It demonstrates how an AI agent can select specialized Mantle workflows, collect evidence from multiple data sources, apply consistent research guardrails, and explain both its findings and its limitations.
+MantleMe demonstrates how an AI agent can select specialized Mantle workflows, collect evidence from multiple data sources, apply consistent research guardrails, and explain both its findings and its limitations.
 
 The dashboard also provides a workflow other builders can extend with additional skills, protocols, indexers, or scoring methodologies.
 
@@ -83,7 +82,6 @@ The dashboard also provides a workflow other builders can extend with additional
 - **Mantle MCP:** Read-only Mantle chain, protocol, token, liquidity, lending, registry, and indexer tools.
 - **OpenAI:** Tool selection and report synthesis.
 
-Every metric returned by the backend can include its source, update timestamp, status, and methodology. Missing values are not replaced with realistic-looking defaults.
 
 
 
